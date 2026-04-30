@@ -10,6 +10,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.UUID;
@@ -46,7 +47,10 @@ public class GolemEntityListener implements Listener {
         if (controllerItem.isController(item)) {
             controllerItem.select(player, item, golemId);
         }
-        player.openInventory(manager.createMenu(golemId));
+        Inventory menu = manager.createMenu(golemId);
+        if (menu != null) {
+            player.openInventory(menu);
+        }
     }
 
     @EventHandler

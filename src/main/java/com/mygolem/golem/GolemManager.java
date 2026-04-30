@@ -142,6 +142,7 @@ public class GolemManager {
             save(record.withActive(false));
             return false;
         }
+        stop(id, false);
         if (!chunkTickets.acquire(record, config.radius(), config.maxLoadedChunksPerGolem())) {
             if (actor != null) {
                 actor.sendMessage(config.message("工作区需要加载的区块超过限制，已拒绝启动。"));
@@ -149,13 +150,23 @@ public class GolemManager {
             save(record.withActive(false));
             return false;
         }
-        stop(id, false);
-        GolemRecord active = record.withActive(true);
-        save(active);
-        WorkSession session = new WorkSession(plugin, config, this, customCrops, protection, active);
-        sessions.put(id, session);
-        session.runTaskTimer(plugin, 1L, config.intervalTicks());
-        return true;
+        try {
+            GolemRecord active = record.withActive(true);
+            save(active);
+            WorkSession session = new WorkSession(plugin, config, this, customCrops, protection, id);
+            sessions.put(id, session);
+            session.runTaskTimer(plugin, 1L, config.intervalTicks());
+            return true;
+        } catch (RuntimeException exception) {
+            plugin.getLogger().severe("Failed to start golem " + id + ": " + exception.getMessage());
+            WorkSession failed = sessions.remove(id);
+            if (failed != null) {
+                failed.cancel();
+            }
+            chunkTickets.release(id, record.center().world());
+            save(record.withActive(false));
+            return false;
+        }
     }
 
     public void stop(UUID id, boolean persist) {
@@ -173,20 +184,22 @@ public class GolemManager {
     }
 
     public void remove(UUID id) {
-        stop(id, false);
-        GolemRecord record = records.remove(id);
+        GolemRecord record = records.get(id);
         if (record == null) {
             return;
         }
-        entity(record).ifPresent(entity -> {
-            modelEngine.remove(entity);
-            entity.remove();
-        });
         try {
             repository.delete(id);
         } catch (SQLException exception) {
             plugin.getLogger().warning("Failed to delete golem " + id + ": " + exception.getMessage());
+            return;
         }
+        stop(id, false);
+        records.remove(id);
+        entity(record).ifPresent(entity -> {
+            modelEngine.remove(entity);
+            entity.remove();
+        });
     }
 
     public void recall(UUID id) {
@@ -263,6 +276,9 @@ public class GolemManager {
 
     public Inventory createBackpackInventory(UUID id) {
         GolemRecord record = records.get(id);
+        if (record == null) {
+            return null;
+        }
         BackpackHolder holder = new BackpackHolder(id);
         Inventory inventory = Bukkit.createInventory(holder, BackpackSnapshot.SIZE, "§0傀儡背包");
         holder.inventory(inventory);
@@ -274,15 +290,18 @@ public class GolemManager {
     }
 
     public Inventory createMenu(UUID id) {
+        GolemRecord record = records.get(id);
+        if (record == null) {
+            return null;
+        }
         MenuHolder holder = new MenuHolder(id);
         Inventory inventory = Bukkit.createInventory(holder, 9, "§0傀儡管理");
         holder.inventory(inventory);
-        GolemRecord record = records.get(id);
         inventory.setItem(0, button(Material.LIME_DYE, record.active() ? "§c停止工作" : "§a启动工作"));
         inventory.setItem(2, button(Material.CHEST, "§6打开背包"));
         inventory.setItem(4, button(Material.COMPASS, "§e设置当前位置为中心"));
         inventory.setItem(6, button(Material.BARRIER, "§c解绑箱子"));
-        inventory.setItem(8, button(Material.REDSTONE_BLOCK, "§4移除傀儡"));
+        inventory.setItem(8, button(Material.ENDER_PEARL, "§e收回傀儡"));
         return inventory;
     }
 
@@ -301,6 +320,9 @@ public class GolemManager {
 
     public Optional<InventoryStorageAdapter> resolveBackpackStorage(GolemRecord record) {
         Inventory backpack = createBackpackInventory(record.id());
+        if (backpack == null) {
+            return Optional.empty();
+        }
         return Optional.of(new InventoryStorageAdapter(backpack, BackpackSnapshot.SIZE, () -> saveBackpack(record.id(), backpack)));
     }
 

@@ -72,12 +72,21 @@ public class MyGolemCommand implements CommandExecutor, TabCompleter {
     }
 
     private void list(CommandSender sender, String[] args) {
-        UUID filter = null;
-        if (args.length >= 2) {
-            Player target = Bukkit.getPlayer(args[1]);
-            if (target != null) {
-                filter = target.getUniqueId();
+        boolean admin = sender.hasPermission("mygolem.admin");
+        UUID filter;
+        if (admin) {
+            filter = null;
+            if (args.length >= 2) {
+                Player target = Bukkit.getPlayer(args[1]);
+                if (target != null) {
+                    filter = target.getUniqueId();
+                }
             }
+        } else if (sender instanceof Player player) {
+            filter = player.getUniqueId();
+        } else {
+            sender.sendMessage(config.message("你没有权限。"));
+            return;
         }
         UUID finalFilter = filter;
         manager.all().stream()

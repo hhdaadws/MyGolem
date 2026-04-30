@@ -138,7 +138,7 @@ Controller item behavior:
 - Right-click a normal block with no selected golem: summon a new golem at the clicked block plus one block up.
 - Right-click a normal block with a selected recalled golem: summon the same golem again at the clicked block plus one block up.
 - Right-click a golem: select it and open management GUI.
-- Shift-right-click a block with a selected golem: set work center.
+- Shift-right-click a block with a selected golem: set work center to the clicked block's top-face center (`block.add(0.5, 1, 0.5)`). The `+1` Y offset matches the summon paths so the idle return anchor lands on top of the block; without it the golem is teleported into the block's interior the moment the center is saved.
 - Right-click a container with a selected golem: bind that container as secondary storage.
 - Right-click normal block with a selected golem: open management GUI.
 
@@ -203,19 +203,22 @@ Known limitation: model animations/states are not yet customized. The current im
 1. Requires the owner to be online. If offline, stops and persists inactive state.
 2. Requires CustomCrops to remain available.
 3. Resolves the golem backpack as the only farm-work storage.
-4. Scans the configured center/radius and vertical range.
-5. Skips locations denied by `ProtectionService`.
-6. Builds harvest targets from mature CustomCrops crops.
-7. Builds plant targets from empty pots with passable crop space above.
-8. Harvest targets win over plant targets.
-9. The nearest target to the golem entity is selected.
-10. If the target is harvest and the backpack has no empty slot or mergeable stack space, the golem unloads before harvesting.
+4. If the backpack has no empty slot or mergeable stack space, immediately switches to unload (independent of target type). This is gated by `WorkStoragePolicy.actionFor(backpackHasSpace)`.
+5. Otherwise scans the configured center/radius and vertical range.
+6. Skips locations denied by `ProtectionService`.
+7. Builds harvest targets from mature CustomCrops crops.
+8. Builds plant targets from empty pots with passable crop space above.
+9. Harvest targets win over plant targets.
+10. The nearest target to the golem entity is selected.
 11. If too far from the selected farm target or bound chest, the golem moves there with Bukkit mob pathfinding.
 12. If close enough, it performs harvest, plant, or unload.
+
+The "backpack-full unload" check is intentionally placed before target selection so the golem will deposit and resume work even when the nearest target is a plant pot or when no scannable target remains. Earlier behaviour (unload only when next target is HARVEST) caused the golem to silently spin or idle with a full backpack.
 
 Harvest behavior:
 
 - `BukkitCustomCropsAPI.get().simulatePlayerBreakCrop(...)` is called as the owner.
+- The owner's main-hand item is snapshotted and replaced with `AIR` for the duration of the API call, then restored in a `finally` block. This isolates CustomCrops' "the player just broke a crop" side effects (durability damage, vanilla `PlayerInteractEvent` consumption) from the real player's inventory.
 - During the harvest, `GolemDropRouter` maps the crop location to the golem backpack only.
 - `DropItemActionEvent` and `QualityCropActionEvent` are cancelled once their drops are routed to storage.
 - Harvest drops are not routed directly into the bound chest.
@@ -227,12 +230,13 @@ Plant behavior:
 - Finds a seed matching `crops.seed-priority` first.
 - Falls back to any seed whose CustomCrops crop whitelist accepts the target pot id.
 - Uses CustomCrops `BuiltInItemMechanics.SEED.mechanic().interactAt(...)`.
+- The owner's main-hand item is snapshotted and replaced with the cloned `oneSeed` for the duration of the API call, then restored in a `finally` block. CustomCrops decrements the (cloned) seed in the player's main hand instead of any real item the owner happens to be holding; the seed is then deducted from the golem backpack via `storage.removeOne`.
 - Removes one seed only after CustomCrops reports complete interaction and a crop appears.
 - Bound chest seeds are not used remotely. To plant, the seed must already be in the golem backpack.
 
 Unload behavior:
 
-- The bound chest is used only when the backpack is full and the selected next target is harvest.
+- The bound chest is used whenever the backpack reports no available space, regardless of the next target type.
 - If no chest is bound, the owner is notified and the golem stops before harvesting.
 - If the bound chest is missing, not a container, or its chunk is not loaded, the owner is notified and the golem stops.
 - The golem moves to the bound chest first. Only after reaching action distance does it transfer backpack contents into the chest.
@@ -284,6 +288,7 @@ Current tests:
 - `BackpackSnapshotTest`
   - Verifies 9-slot serialization/deserialization.
   - Verifies non-9-slot snapshots are rejected.
+  - Verifies a single corrupt base64 slot is reset to null without failing other slots, so a tampered or version-incompatible row cannot block plugin startup.
 
 - `GolemRepositoryTest`
   - Saves a full golem record to SQLite.
@@ -297,9 +302,8 @@ Current tests:
   - Verifies the capacity rules used by the storage transfer algorithm: empty slots, mergeable stacks, and real leftovers.
 
 - `WorkStoragePolicyTest`
-  - Verifies harvest uses the backpack while there is space.
-  - Verifies full-backpack harvest selects unload before work.
-  - Verifies planting still uses backpack storage only.
+  - Verifies a backpack with space stays on `FARM_WITH_BACKPACK`.
+  - Verifies a backpack without space switches to `UNLOAD_BACKPACK_TO_CHEST` regardless of target type.
 
 - `ChunkAreaCalculatorTest`
   - Verifies radius-to-chunk coverage.
@@ -332,6 +336,18 @@ Last verified result during implementation:
 - Bound chest storage requires the chest chunk to be loaded. This is intentional to avoid loading arbitrary distant storage silently.
 - Watering support was present in the earlier MCPets reference, but this independent v1 implements harvest and planting only. Add watering as a separate `WorkTarget.Type.WATER` pass if needed.
 - Admin sharing, upgrades, energy costs, cross-world logistics, and sell/economy hooks are intentionally out of scope for v1.
+
+## Recent Bug Fixes (audit pass)
+
+- **Owner check on shift+right-click set-center**: previously any holder of a controller whose PDC `selected_golem` still pointed at someone else's golem could re-anchor that golem's work center. `ControllerListener` now rejects with the standard "not your golem" message before calling `manager.setCenter(...)`.
+- **Stale `WorkSession.record`**: `WorkSession` previously captured the `GolemRecord` at construction time, so `setCenter`/`bindChest`/`save(...)` updates made while a session was running were silently ignored until restart. The session now stores only the golem `UUID` and re-reads `manager.get(id)` at the top of every tick; if the record has been removed mid-session it stops without persisting.
+- **`/mygolem list` permission scope**: previously every player saw every golem with owner UUIDs. Now: non-admins only see their own; admins keep the full list and the optional `[player]` filter.
+- **GolemDropRouter unregister leak**: `BukkitCustomCropsFacade.harvest` previously scheduled `unregister` 20 ticks later via `runTaskLater` outside the `try-finally`. If `simulatePlayerBreakCrop` threw, the redirect entry would stay forever and route any subsequent breaks at that location into the stopped golem. Now `unregister` runs synchronously in an outer `finally`, so the entry is always cleared.
+- **`createBackpackInventory` / `createMenu` NPE under remove-vs-open race**: both methods now return `null` when the record is gone; all four callers (controller, GUI menu button, GUI backpack button, entity right-click) handle the null and fall back to closing the inventory or showing "傀儡已不存在".
+- **`remove()` partial-failure consistency**: previously the in-memory `records.remove` and entity removal happened before `repository.delete`; if SQLite threw, the live entity was gone but the row stayed and would respawn the orphan on next start. The order is now: delete from DB, return on failure, then mutate runtime state.
+- **`start()` chunk-ticket leak / immediate self-release**: two related issues — (1) `stop(id, false)` was being called *after* `chunkTickets.acquire`, and `stop` itself released the just-acquired tickets, so every started session ran without plugin chunk tickets; (2) any RuntimeException between `acquire` and `runTaskTimer` left tickets dangling. Now `stop` runs before `acquire`, and the entire post-acquire block is wrapped in a `try` that releases tickets, removes the half-installed session, and clears `active` on failure.
+- **Backpack deserialization defenses**: `BackpackSnapshot.deserialize` now catches `IllegalArgumentException` from `Base64.getDecoder().decode` per slot and resets that slot to null (with `BackpackSnapshotTest` covering the case). `BukkitItemStackCodec.decode` now logs a warning via `Bukkit.getLogger()` and returns null on any deserialization failure instead of throwing `IllegalStateException`. Net effect: a single corrupt slot or version-incompatible item no longer breaks `loadAll()`.
+- **GUI slot 8 label**: was "§4移除傀儡" with `REDSTONE_BLOCK`, but the action was `manager.recall(...)`. Renamed to "§e收回傀儡" with `ENDER_PEARL` so the UI matches the documented behavior in the "Player Flow" section.
 
 ## Safe Change Checklist
 

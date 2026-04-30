@@ -12,6 +12,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.UUID;
@@ -58,7 +59,12 @@ public class ControllerListener implements Listener {
             return;
         }
         if (selected != null && manager.get(selected).isPresent() && player.isSneaking()) {
-            manager.setCenter(selected, event.getClickedBlock().getLocation());
+            GolemRecord ownedRecord = manager.get(selected).get();
+            if (!ownedRecord.owner().equals(player.getUniqueId())) {
+                player.sendMessage(config.message("这不是你的傀儡。"));
+                return;
+            }
+            manager.setCenter(selected, event.getClickedBlock().getLocation().add(0.5, 1, 0.5));
             player.sendMessage(config.message("已设置工作中心。"));
             return;
         }
@@ -85,6 +91,11 @@ public class ControllerListener implements Listener {
             }
             return;
         }
-        player.openInventory(manager.createMenu(selected));
+        Inventory menu = manager.createMenu(selected);
+        if (menu == null) {
+            player.sendMessage(config.message("傀儡已不存在。"));
+            return;
+        }
+        player.openInventory(menu);
     }
 }

@@ -1,5 +1,6 @@
 package com.mygolem.storage;
 
+import org.bukkit.Bukkit;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.util.io.BukkitObjectInputStream;
 import org.bukkit.util.io.BukkitObjectOutputStream;
@@ -33,7 +34,8 @@ public class BukkitItemStackCodec implements ItemStackCodec {
              BukkitObjectInputStream input = new BukkitObjectInputStream(bytes)) {
             return (ItemStack) input.readObject();
         } catch (Exception exception) {
-            throw new IllegalStateException("Unable to deserialize golem item.", exception);
+            Bukkit.getLogger().warning("[MyGolem] Failed to deserialize stored item, slot reset: " + exception.getMessage());
+            return null;
         }
     }
 }

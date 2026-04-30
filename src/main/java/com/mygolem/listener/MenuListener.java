@@ -48,9 +48,21 @@ public class MenuListener implements Listener {
                 } else if (manager.start(golemId, player)) {
                     player.sendMessage(config.message("傀儡已启动。"));
                 }
-                player.openInventory(manager.createMenu(golemId));
+                Inventory refreshed = manager.createMenu(golemId);
+                if (refreshed != null) {
+                    player.openInventory(refreshed);
+                } else {
+                    player.closeInventory();
+                }
             }
-            case 2 -> player.openInventory(manager.createBackpackInventory(golemId));
+            case 2 -> {
+                Inventory backpack = manager.createBackpackInventory(golemId);
+                if (backpack != null) {
+                    player.openInventory(backpack);
+                } else {
+                    player.closeInventory();
+                }
+            }
             case 4 -> {
                 Location location = player.getLocation().getBlock().getLocation();
                 manager.setCenter(golemId, location);

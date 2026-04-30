@@ -5,8 +5,8 @@ public final class WorkStoragePolicy {
     private WorkStoragePolicy() {
     }
 
-    public static Action actionFor(WorkTarget.Type targetType, boolean backpackHasSpace) {
-        if (targetType == WorkTarget.Type.HARVEST && !backpackHasSpace) {
+    public static Action actionFor(boolean backpackHasSpace) {
+        if (!backpackHasSpace) {
             return Action.UNLOAD_BACKPACK_TO_CHEST;
         }
         return Action.FARM_WITH_BACKPACK;

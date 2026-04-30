@@ -85,8 +85,17 @@ public class BukkitCustomCropsFacade implements CustomCropsFacade {
             return false;
         }
         GolemDropRouter.register(cropLocation, storage, overflow);
-        BukkitCustomCropsAPI.get().simulatePlayerBreakCrop(player, EquipmentSlot.HAND, cropLocation, BreakReason.BREAK);
-        Bukkit.getScheduler().runTaskLater(plugin, () -> GolemDropRouter.unregister(cropLocation), 20L);
+        ItemStack savedMainHand = player.getInventory().getItemInMainHand().clone();
+        try {
+            try {
+                player.getInventory().setItemInMainHand(new ItemStack(Material.AIR));
+                BukkitCustomCropsAPI.get().simulatePlayerBreakCrop(player, EquipmentSlot.HAND, cropLocation, BreakReason.BREAK);
+            } finally {
+                player.getInventory().setItemInMainHand(savedMainHand);
+            }
+        } finally {
+            GolemDropRouter.unregister(cropLocation);
+        }
         return cropAt(cropLocation).isEmpty();
     }
 
@@ -132,7 +141,14 @@ public class BukkitCustomCropsFacade implements CustomCropsFacade {
                 BlockFace.UP,
                 new SimpleCancellable()
         );
-        InteractionResult result = seedItem.interactAt(event);
+        ItemStack savedMainHand = player.getInventory().getItemInMainHand().clone();
+        InteractionResult result;
+        try {
+            player.getInventory().setItemInMainHand(oneSeed);
+            result = seedItem.interactAt(event);
+        } finally {
+            player.getInventory().setItemInMainHand(savedMainHand);
+        }
         if (result == InteractionResult.COMPLETE && cropAt(cropLocation).isPresent()) {
             storage.removeOne(slot.get());
             return true;

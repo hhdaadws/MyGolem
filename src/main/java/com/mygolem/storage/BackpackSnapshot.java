@@ -45,7 +45,11 @@ public record BackpackSnapshot(String[] slots) {
         String[] slots = new String[SIZE];
         for (int index = 0; index < parts.length; index++) {
             if (parts[index].startsWith("v")) {
-                slots[index] = new String(Base64.getDecoder().decode(parts[index].substring(1)), StandardCharsets.UTF_8);
+                try {
+                    slots[index] = new String(Base64.getDecoder().decode(parts[index].substring(1)), StandardCharsets.UTF_8);
+                } catch (IllegalArgumentException ignored) {
+                    slots[index] = null;
+                }
             }
         }
         return new BackpackSnapshot(slots);

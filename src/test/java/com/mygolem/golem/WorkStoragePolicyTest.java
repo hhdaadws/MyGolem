@@ -7,26 +7,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class WorkStoragePolicyTest {
 
     @Test
-    void harvestUsesBackpackWhenBackpackStillHasSpace() {
+    void usesBackpackWhenBackpackStillHasSpace() {
         assertEquals(
                 WorkStoragePolicy.Action.FARM_WITH_BACKPACK,
-                WorkStoragePolicy.actionFor(WorkTarget.Type.HARVEST, true)
+                WorkStoragePolicy.actionFor(true)
         );
     }
 
     @Test
-    void harvestMovesToChestUnloadBeforeWorkingWhenBackpackIsFull() {
+    void movesToChestUnloadWhenBackpackIsFull() {
         assertEquals(
                 WorkStoragePolicy.Action.UNLOAD_BACKPACK_TO_CHEST,
-                WorkStoragePolicy.actionFor(WorkTarget.Type.HARVEST, false)
-        );
-    }
-
-    @Test
-    void plantingStillUsesBackpackOnlyWhenBackpackIsFull() {
-        assertEquals(
-                WorkStoragePolicy.Action.FARM_WITH_BACKPACK,
-                WorkStoragePolicy.actionFor(WorkTarget.Type.PLANT, false)
+                WorkStoragePolicy.actionFor(false)
         );
     }
 }
