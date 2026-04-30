@@ -1,0 +1,30 @@
+model:
+  model-id: farm_golem
+  base-entity: ALLAY
+
+work:
+  radius: 6
+  interval-ticks: 40
+  action-distance: 2.5
+  vertical-scan-radius: 2
+
+limits:
+  max-golems-per-player: 3
+  max-golems-global: 120
+  max-loaded-chunks-per-golem: 9
+
+storage:
+  sqlite-file: mygolem.db
+
+protection:
+  residence:
+    enabled: true
+  event-checks:
+    enabled: true
+
+crops:
+  seed-priority: []
+  harvestable-points: {}
+
+messages:
+  prefix: "&6[MyGolem] &e"

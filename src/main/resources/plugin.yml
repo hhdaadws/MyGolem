@@ -1,0 +1,21 @@
+name: MyGolem
+version: ${version}
+main: com.mygolem.MyGolemPlugin
+api-version: '1.21'
+author: Codex
+depend:
+  - CustomCrops
+softdepend:
+  - ModelEngine
+  - Residence
+commands:
+  mygolem:
+    description: Manage CustomCrops farm golems.
+    usage: /mygolem
+permissions:
+  mygolem.use:
+    default: true
+  mygolem.admin:
+    default: op
+  mygolem.protection.bypass:
+    default: op
