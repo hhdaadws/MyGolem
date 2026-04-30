@@ -22,6 +22,17 @@ public final class InventoryStacks {
         return false;
     }
 
+    public static int countEmptySlots(ItemStack[] contents, int maxSlots) {
+        int limit = limit(contents, maxSlots);
+        int empty = 0;
+        for (int index = 0; index < limit; index++) {
+            if (isEmpty(contents[index])) {
+                empty++;
+            }
+        }
+        return empty;
+    }
+
     public static List<ItemStack> addItems(ItemStack[] contents, int maxSlots, Collection<ItemStack> incoming) {
         int limit = limit(contents, maxSlots);
         List<ItemStack> leftovers = new ArrayList<>();

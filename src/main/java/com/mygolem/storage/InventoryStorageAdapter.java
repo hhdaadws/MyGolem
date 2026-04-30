@@ -79,6 +79,10 @@ public class InventoryStorageAdapter implements StorageAdapter {
         return InventoryStacks.hasAvailableSpace(inventory.getContents(), maxSlots);
     }
 
+    public int emptySlotCount() {
+        return InventoryStacks.countEmptySlots(inventory.getContents(), maxSlots);
+    }
+
     public List<ItemStack> storedItems() {
         return InventoryStacks.storedItems(inventory.getContents(), maxSlots);
     }

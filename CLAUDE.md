@@ -58,10 +58,10 @@ Java 语言级别：toolchain 21，但字节码 release = 17（`build.gradle:11-
 ### 几条强约束（容易踩坑）
 
 1. **不要 relocate `org.sqlite`**。SQLite JDBC 通过原始包名做 service 加载，shadow 配置故意没动它。
-2. **背包是农场作业的唯一存储**。绑定箱子只在背包满 + 下一目标是收割时用作卸货终点；种植阶段不会跨容器取种子。
+2. **背包是农场作业的唯一存储**。绑定箱子只在「背包没有空槽」或「空槽数低于 `WorkStoragePolicy.LOW_SPACE_THRESHOLD` 且已绑定箱子」时用作卸货终点；收割中途若 `GolemDropRouter` 装不下，剩余物会缓冲到 `WorkSession.pendingLeftovers`，下一 tick 走到箱子一并卸货。种植阶段不会跨容器取种子。
 3. **召回 vs 删除**：GUI 召回只清 `active` 与 `entity_uuid`，记录、背包、中心、绑定箱子都保留；`/mygolem remove <id>` 才是永久删除（管理员命令，权限 `mygolem.admin`）。
 4. **绑定箱子 chunk 必须已加载**。未加载时 `WorkSession` 会停掉傀儡而不是默默吞物品 —— 这是预期行为，不要"修"成自动加载远端 chunk。
-5. **收割剩余物拒绝静默丢弃**：如果 `BukkitCustomCropsAPI.simulatePlayerBreakCrop` 返回的剩余物超过背包容量，会通知所有者并停止会话。改造此路径前先看 `WorkSession` 与 `StorageRoutingTest`。
+5. **收割剩余物的兜底**：绑定了箱子时，溢出物先缓冲到 `WorkSession.pendingLeftovers`，下一 tick 转去箱子卸货；只有在未绑定箱子 / 箱子也满 / 箱子 chunk 未加载 / 箱子被破坏时才停机并通知所有者。`pendingLeftovers` **不**跨重启，会话 `stop()` 时丢失（CustomCrops 已扣减世界作物，无法安全重放）。改造此路径前先看 `WorkSession` 与 `StorageRoutingTest`。
 6. **square scan**：作业范围按 `work.radius` 的方形扫，`limits.max-loaded-chunks-per-golem` 是启动期硬上限（超过直接拒启动并清 `active`）。
 
 ## 修改流程检查表（来自 DEVELOPMENT.md §"Safe Change Checklist"）

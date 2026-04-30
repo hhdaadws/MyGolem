@@ -28,6 +28,7 @@ public class WorkSession extends BukkitRunnable {
     private final CustomCropsFacade crops;
     private final ProtectionService protection;
     private final UUID golemId;
+    private final List<ItemStack> pendingLeftovers = new ArrayList<>();
 
     public WorkSession(
             Plugin plugin,
@@ -68,7 +69,14 @@ public class WorkSession extends BukkitRunnable {
             manager.stop(golemId, true);
             return;
         }
-        WorkStoragePolicy.Action action = WorkStoragePolicy.actionFor(backpack.get().hasAvailableSpace());
+        if (!pendingLeftovers.isEmpty()) {
+            drainPendingLeftoversToChest(record, owner, backpack.get());
+            return;
+        }
+        WorkStoragePolicy.Action action = WorkStoragePolicy.actionFor(
+                backpack.get().emptySlotCount(),
+                record.chest() != null
+        );
         if (action == WorkStoragePolicy.Action.UNLOAD_BACKPACK_TO_CHEST) {
             unloadBackpack(record, owner, backpack.get());
             return;
@@ -170,10 +178,54 @@ public class WorkSession extends BukkitRunnable {
         }
     }
 
-    private void overflow(Player owner, List<ItemStack> leftovers) {
-        if (!leftovers.isEmpty()) {
-            owner.sendMessage(config.message("傀儡背包装不下本次收获，傀儡已停止。"));
+    private void drainPendingLeftoversToChest(GolemRecord record, Player owner, InventoryStorageAdapter backpack) {
+        if (record.chest() == null) {
+            stopWithOverflowMessage(owner);
+            return;
+        }
+        Optional<InventoryStorageAdapter> chest = manager.resolveChestStorage(record);
+        if (chest.isEmpty()) {
+            stopWithOverflowMessage(owner);
+            return;
+        }
+        Location chestLocation = record.chest().toBukkit();
+        if (chestLocation == null) {
+            stopWithOverflowMessage(owner);
+            return;
+        }
+        Location unloadLocation = chestLocation.clone().add(0.5, 0, 0.5);
+        if (manager.distanceToEntity(record, unloadLocation) > config.actionDistance()) {
+            manager.moveToward(record, unloadLocation);
+            return;
+        }
+        List<ItemStack> bufferOverflow = chest.get().addItems(pendingLeftovers);
+        pendingLeftovers.clear();
+        if (!bufferOverflow.isEmpty()) {
+            stopWithOverflowMessage(owner);
+            return;
+        }
+        List<ItemStack> backpackLeftovers = backpack.transferAllTo(chest.get());
+        if (!backpackLeftovers.isEmpty()) {
+            owner.sendMessage(config.message("绑定箱子已满，傀儡已停止。"));
             Bukkit.getScheduler().runTask(plugin, () -> manager.stop(golemId, true));
         }
+    }
+
+    private void overflow(Player owner, List<ItemStack> leftovers) {
+        if (leftovers.isEmpty()) {
+            return;
+        }
+        GolemRecord record = manager.get(golemId).orElse(null);
+        if (record != null && record.chest() != null) {
+            pendingLeftovers.addAll(leftovers);
+            return;
+        }
+        stopWithOverflowMessage(owner);
+    }
+
+    private void stopWithOverflowMessage(Player owner) {
+        pendingLeftovers.clear();
+        owner.sendMessage(config.message("傀儡背包装不下本次收获，傀儡已停止。"));
+        Bukkit.getScheduler().runTask(plugin, () -> manager.stop(golemId, true));
     }
 }

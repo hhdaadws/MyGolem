@@ -203,15 +203,19 @@ Known limitation: model animations/states are not yet customized. The current im
 1. Requires the owner to be online. If offline, stops and persists inactive state.
 2. Requires CustomCrops to remain available.
 3. Resolves the golem backpack as the only farm-work storage.
-4. If the backpack has no empty slot or mergeable stack space, immediately switches to unload (independent of target type). This is gated by `WorkStoragePolicy.actionFor(backpackHasSpace)`.
-5. Otherwise scans the configured center/radius and vertical range.
-6. Skips locations denied by `ProtectionService`.
-7. Builds harvest targets from mature CustomCrops crops.
-8. Builds plant targets from empty pots with passable crop space above.
-9. Harvest targets win over plant targets.
-10. The nearest target to the golem entity is selected.
-11. If too far from the selected farm target or bound chest, the golem moves there with Bukkit mob pathfinding.
-12. If close enough, it performs harvest, plant, or unload.
+4. If `pendingLeftovers` from a previous overflow are buffered, drains them (and the rest of the backpack) into the bound chest before scanning for new work.
+5. Otherwise consults `WorkStoragePolicy.actionFor(emptySlots, chestBindable)`:
+   - Empty-slot count is `0` → unload now (legacy "no space" path).
+   - Empty-slot count is below `WorkStoragePolicy.LOW_SPACE_THRESHOLD` (`= 2`) **and** a chest is bound → preemptive unload, so a single quality-crop tick is unlikely to overflow the backpack mid-harvest.
+   - Otherwise farm with the backpack.
+6. Otherwise scans the configured center/radius and vertical range.
+7. Skips locations denied by `ProtectionService`.
+8. Builds harvest targets from mature CustomCrops crops.
+9. Builds plant targets from empty pots with passable crop space above.
+10. Harvest targets win over plant targets.
+11. The nearest target to the golem entity is selected.
+12. If too far from the selected farm target or bound chest, the golem moves there with Bukkit mob pathfinding.
+13. If close enough, it performs harvest, plant, or unload.
 
 The "backpack-full unload" check is intentionally placed before target selection so the golem will deposit and resume work even when the nearest target is a plant pot or when no scannable target remains. Earlier behaviour (unload only when next target is HARVEST) caused the golem to silently spin or idle with a full backpack.
 
@@ -236,8 +240,8 @@ Plant behavior:
 
 Unload behavior:
 
-- The bound chest is used whenever the backpack reports no available space, regardless of the next target type.
-- If no chest is bound, the owner is notified and the golem stops before harvesting.
+- The bound chest is used whenever the backpack has no empty slot, OR when fewer than `WorkStoragePolicy.LOW_SPACE_THRESHOLD` empty slots remain and a chest is bound (preemptive unload to absorb single-tick quality-crop spikes).
+- If no chest is bound, the owner is notified and the golem stops before harvesting (preemptive unload only triggers when a chest is available; otherwise the legacy "no space" path applies).
 - If the bound chest is missing, not a container, or its chunk is not loaded, the owner is notified and the golem stops.
 - The golem moves to the bound chest first. Only after reaching action distance does it transfer backpack contents into the chest.
 - Chest transfer first merges similar stacks, then uses empty slots, and only returns true leftovers when no allowed slot can accept them.
@@ -246,9 +250,10 @@ Unload behavior:
 
 Overflow behavior:
 
-- The code does not intentionally drop overflow items or teleport harvest drops into the chest.
-- The expected path is: harvest into backpack, walk to chest when backpack is full, deposit backpack into chest.
-- Leftovers after harvest or unload stop the session so items are not silently duplicated or lost.
+- Mid-harvest, when `GolemDropRouter` cannot fit all CustomCrops drops into the backpack, the leftovers are buffered into `WorkSession.pendingLeftovers` if a chest is bound, and the next tick walks to the chest, dumps the buffer, then dumps the backpack.
+- If no chest is bound (or the buffer drain ultimately fails because the chest is missing / chunk not loaded / the chest can't even fit the buffered leftovers), the owner is notified with "傀儡背包装不下本次收获，傀儡已停止。" and the session stops. Items still in `pendingLeftovers` at stop time are dropped — the buffer is intentionally not persisted across `stop()` / reload, since CustomCrops has already decremented the world crop and replay is unsafe.
+- The intent is: routine quality-crop overflow no longer kills the session; only a real "nowhere to put items" condition does.
+- The code does not intentionally teleport harvest drops directly into the chest mid-event — `GolemDropRouter` still only knows about the backpack. The chest is only touched from the `WorkSession` tick, on the next iteration after the buffer is filled.
 
 ## Chunk Loading
 
@@ -302,8 +307,15 @@ Current tests:
   - Verifies the capacity rules used by the storage transfer algorithm: empty slots, mergeable stacks, and real leftovers.
 
 - `WorkStoragePolicyTest`
-  - Verifies a backpack with space stays on `FARM_WITH_BACKPACK`.
+  - Verifies a backpack with space stays on `FARM_WITH_BACKPACK` (legacy boolean overload).
   - Verifies a backpack without space switches to `UNLOAD_BACKPACK_TO_CHEST` regardless of target type.
+  - Verifies preemptive unload triggers when empty-slot count drops below `LOW_SPACE_THRESHOLD` AND a chest is bound.
+  - Verifies preemptive unload is suppressed when no chest is bound (so the golem doesn't immediately stop on a near-full backpack with nowhere to deposit).
+  - Verifies zero empty slots always unload regardless of chest binding.
+  - Verifies at-or-above-threshold keeps farming.
+
+- `InventoryStacksCountEmptyTest`
+  - Verifies `countEmptySlots` handles null/empty arrays, all-null contents, the `maxSlots` clamp, and zero/negative `maxSlots`.
 
 - `ChunkAreaCalculatorTest`
   - Verifies radius-to-chunk coverage.
